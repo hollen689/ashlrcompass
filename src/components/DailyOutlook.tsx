@@ -174,18 +174,18 @@ export default function DailyOutlook({ yt, ig, videos }: Props) {
   }
 
   return (
-    <div className="rounded-2xl p-5 mb-8" style={{ background: '#171717', border: '1px solid #262626' }}>
+    <div className="card p-5 mb-8">
       <div className="flex items-start justify-between mb-4">
         <div>
-          <p className="text-sm font-semibold text-white">Today's Focus</p>
-          <p className="text-xs mt-0.5" style={{ color: '#737373' }}>{today}</p>
+          <p className="display-sm" style={{ fontSize: 16 }}>Today's Focus</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--ink-muted)' }}>{today}</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs" style={{ color: '#737373' }}>{done}/{tasks.length} done</span>
-          <div className="w-20 h-1.5 rounded-full overflow-hidden" style={{ background: '#262626' }}>
+          <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>{done}/{tasks.length} done</span>
+          <div className="w-20 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
             <div
               className="h-full rounded-full transition-all duration-300"
-              style={{ width: `${tasks.length ? (done / tasks.length) * 100 : 0}%`, background: '#3b82f6' }}
+              style={{ width: `${tasks.length ? (done / tasks.length) * 100 : 0}%`, background: 'var(--accent)' }}
             />
           </div>
         </div>
@@ -198,9 +198,10 @@ export default function DailyOutlook({ yt, ig, videos }: Props) {
           return (
             <div
               key={task.id}
-              className="flex items-start gap-3 rounded-xl p-3 transition-opacity"
+              className="flex items-start gap-3 p-3 transition-opacity"
               style={{
                 background: '#111111',
+                borderRadius: 'var(--r-md)',
                 opacity: isDone ? 0.45 : 1,
               }}
             >
@@ -209,7 +210,7 @@ export default function DailyOutlook({ yt, ig, videos }: Props) {
                 className="shrink-0 mt-0.5 transition-opacity hover:opacity-70"
               >
                 {isDone
-                  ? <CheckCircle2 size={17} color="#3b82f6" />
+                  ? <CheckCircle2 size={17} color="#f5a524" />
                   : <Circle size={17} color="#404040" />
                 }
               </button>
@@ -220,7 +221,7 @@ export default function DailyOutlook({ yt, ig, videos }: Props) {
                     className="w-1.5 h-1.5 rounded-full shrink-0"
                     style={{ background: PRIORITY_COLOR[task.priority] }}
                   />
-                  <p className="text-sm font-medium text-white leading-snug" style={{ textDecoration: isDone ? 'line-through' : 'none' }}>
+                  <p className="display-sm text-sm leading-snug" style={{ textDecoration: isDone ? 'line-through' : 'none' }}>
                     {task.title}
                   </p>
                   <span
@@ -230,7 +231,7 @@ export default function DailyOutlook({ yt, ig, videos }: Props) {
                     {cat.icon}{cat.label}
                   </span>
                 </div>
-                <p className="text-xs leading-relaxed" style={{ color: '#737373' }}>{task.description}</p>
+                <p className="text-xs leading-relaxed" style={{ color: 'var(--ink-muted)' }}>{task.description}</p>
               </div>
 
               {task.action && (
@@ -239,8 +240,15 @@ export default function DailyOutlook({ yt, ig, videos }: Props) {
                     if (task.action!.route) navigate(task.action!.route)
                     else if (task.action!.href) window.open(task.action!.href, '_blank', 'noopener,noreferrer')
                   }}
-                  className="shrink-0 flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg transition-opacity hover:opacity-70 mt-0.5"
-                  style={{ background: 'rgba(59,130,246,0.1)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.15)' }}
+                  className="shrink-0 flex items-center gap-1 text-xs px-3 py-1.5 transition-colors hover:bg-[var(--accent-tint-strong)] mt-0.5"
+                  style={{
+                    background: 'var(--accent-tint)',
+                    color: 'var(--accent-soft)',
+                    border: '1px solid var(--accent-tint-strong)',
+                    borderRadius: 'var(--r-pill)',
+                    fontFamily: 'var(--font-display)',
+                    fontWeight: 600,
+                  }}
                 >
                   <Link2 size={10} />
                   {task.action.label}
