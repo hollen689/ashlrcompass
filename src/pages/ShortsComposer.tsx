@@ -54,7 +54,7 @@ const TEMPLATES: Template[] = [
     name: 'Top 5 Countdown',
     description: 'Count down your top picks from 5 to 1',
     icon: ListOrdered,
-    color: '#3b82f6',
+    color: '#f5a524',
     buildSlots: () => ['#5', '#4', '#3', '#2', '#1'].map(l => makeSlot(l)),
     fixedCount: 5,
     minCount: 5,
@@ -87,6 +87,86 @@ const TEMPLATES: Template[] = [
 function formatFileSize(b: number): string {
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`
   return `${(b / 1024 / 1024).toFixed(1)} MB`
+}
+
+function TemplatePreview({ id }: { id: TemplateId }) {
+  const barBase = { display: 'flex', alignItems: 'flex-end', gap: 6, height: 56 } as const
+
+  if (id === 'meme-ranking') {
+    return (
+      <div style={barBase}>
+        {[
+          { label: '#3', h: 30, bg: '#cd7f3218', border: '#cd7f3250', color: '#cd7f32' },
+          { label: '#1', h: 52, bg: '#ffd70018', border: '#ffd70060', color: '#ffd700' },
+          { label: '#2', h: 40, bg: '#c0c0c018', border: '#c0c0c050', color: '#c0c0c0' },
+        ].map(bar => (
+          <div
+            key={bar.label}
+            className="flex-1 rounded-t-md flex items-start justify-center pt-1"
+            style={{ height: bar.h, background: bar.bg, border: `1px solid ${bar.border}` }}
+          >
+            <span className="text-xs font-bold" style={{ color: bar.color }}>{bar.label}</span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (id === 'countdown') {
+    return (
+      <div style={{ ...barBase, alignItems: 'center' }}>
+        {['5', '4', '3', '2', '1'].map((n, i) => (
+          <div
+            key={n}
+            className="flex-1 rounded-lg flex items-center justify-center font-bold"
+            style={{
+              height: 18 + i * 8,
+              background: i === 4 ? '#f5a52430' : '#f5a52412',
+              border: `1px solid #f5a524${i === 4 ? '80' : '30'}`,
+              color: i === 4 ? '#f7bb59' : '#f5a524',
+              fontSize: 10 + i,
+            }}
+          >
+            {n}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (id === 'before-after') {
+    return (
+      <div className="flex rounded-lg overflow-hidden" style={{ height: 56 }}>
+        <div
+          className="flex-1 flex flex-col items-center justify-center gap-1"
+          style={{ background: 'linear-gradient(160deg,#2a2a2a,#1a1a1a)' }}
+        >
+          <div className="rounded-full" style={{ width: 18, height: 18, background: '#44444470' }} />
+          <span className="text-[9px] font-semibold tracking-wide" style={{ color: 'var(--ink-muted)' }}>BEFORE</span>
+        </div>
+        <div className="flex items-center justify-center px-1" style={{ background: '#111111' }}>
+          <ArrowLeftRight size={11} color="#22c55e" />
+        </div>
+        <div
+          className="flex-1 flex flex-col items-center justify-center gap-1"
+          style={{ background: 'linear-gradient(160deg,#22c55e40,#16a34a20)' }}
+        >
+          <div className="rounded-full" style={{ width: 18, height: 18, background: 'linear-gradient(135deg,#22c55e,#4ade80)' }} />
+          <span className="text-[9px] font-semibold tracking-wide" style={{ color: '#4ade80' }}>AFTER</span>
+        </div>
+      </div>
+    )
+  }
+
+  // custom mix
+  const colors = ['#a855f7', '#f5a524', '#f59e0b', '#22c55e']
+  return (
+    <div className="grid grid-cols-4 gap-1" style={{ height: 56 }}>
+      {colors.map(c => (
+        <div key={c} className="rounded-md" style={{ background: `${c}22`, border: `1px solid ${c}45` }} />
+      ))}
+    </div>
+  )
 }
 
 export default function ShortsComposer() {
@@ -215,7 +295,7 @@ export default function ShortsComposer() {
       setProgress(92)
 
       const data = await ffmpeg.readFile('output.mp4') as Uint8Array
-      const blob = new Blob([data], { type: 'video/mp4' })
+      const blob = new Blob([data as BlobPart], { type: 'video/mp4' })
       const url = URL.createObjectURL(blob)
       outputUrlRef.current = url
       setOutputUrl(url)
@@ -268,7 +348,7 @@ export default function ShortsComposer() {
       {/* Template selection */}
       {step === 'template' && (
         <div className="max-w-2xl">
-          <p className="text-sm mb-5" style={{ color: '#737373' }}>Choose a format for your Short</p>
+          <p className="text-sm mb-5" style={{ color: 'var(--ink-muted)' }}>Choose a format for your Short</p>
           <div className="grid grid-cols-2 gap-3">
             {TEMPLATES.map(t => {
               const Icon = t.icon
@@ -277,18 +357,25 @@ export default function ShortsComposer() {
                   key={t.id}
                   onClick={() => selectTemplate(t)}
                   className="text-left rounded-2xl p-5 transition-all hover:scale-[1.01]"
-                  style={{ background: '#171717', border: '1px solid #262626' }}
+                  style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
                 >
-                  <div
-                    className="flex items-center justify-center rounded-xl mb-3"
-                    style={{ width: 40, height: 40, background: `${t.color}18`, border: `1px solid ${t.color}40` }}
-                  >
-                    <Icon size={18} color={t.color} />
+                  <div className="flex items-center gap-2 mb-3">
+                    <div
+                      className="flex items-center justify-center rounded-xl shrink-0"
+                      style={{ width: 40, height: 40, background: `${t.color}18`, border: `1px solid ${t.color}40` }}
+                    >
+                      <Icon size={18} color={t.color} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="display-sm text-sm">{t.name}</p>
+                      <p className="text-xs leading-relaxed" style={{ color: 'var(--ink-muted)' }}>{t.description}</p>
+                    </div>
                   </div>
-                  <p className="text-sm font-semibold text-white mb-1">{t.name}</p>
-                  <p className="text-xs leading-relaxed" style={{ color: '#737373' }}>{t.description}</p>
+                  <div className="rounded-lg p-2 mb-2" style={{ background: '#111111', border: '1px solid #1e1e1e' }}>
+                    <TemplatePreview id={t.id} />
+                  </div>
                   {!t.fixedCount && (
-                    <p className="text-xs mt-2" style={{ color: t.color }}>
+                    <p className="text-xs" style={{ color: t.color }}>
                       {t.minCount}–{t.maxCount} clips
                     </p>
                   )}
@@ -305,7 +392,7 @@ export default function ShortsComposer() {
           <button
             onClick={reset}
             className="flex items-center gap-1.5 text-sm mb-5 transition-opacity hover:opacity-70"
-            style={{ color: '#737373' }}
+            style={{ color: 'var(--ink-muted)' }}
           >
             <ArrowLeft size={14} />
             Change template
@@ -319,8 +406,8 @@ export default function ShortsComposer() {
               <template.icon size={16} color={template.color} />
             </div>
             <div>
-              <p className="text-sm font-semibold text-white">{template.name}</p>
-              <p className="text-xs" style={{ color: '#737373' }}>
+              <p className="display-sm text-sm">{template.name}</p>
+              <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
                 {readySlots.length}/{slots.length} clips uploaded
               </p>
             </div>
@@ -328,7 +415,7 @@ export default function ShortsComposer() {
             {/* Slot count picker for variable templates */}
             {!template.fixedCount && (
               <div className="ml-auto flex items-center gap-2">
-                <span className="text-xs" style={{ color: '#737373' }}>Clips:</span>
+                <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>Clips:</span>
                 <div className="flex gap-1">
                   {Array.from(
                     { length: template.maxCount - template.minCount + 1 },
@@ -377,7 +464,7 @@ export default function ShortsComposer() {
             <button
               onClick={addSlot}
               className="flex items-center gap-2 w-full py-3 rounded-xl text-sm transition-all mb-4 hover:opacity-80"
-              style={{ background: '#1a1a1a', border: '1px dashed #333333', color: '#737373' }}
+              style={{ background: '#1a1a1a', border: '1px dashed #333333', color: 'var(--ink-muted)' }}
             >
               <Plus size={14} />
               Add clip slot
@@ -405,7 +492,7 @@ export default function ShortsComposer() {
               : `Upload all ${slots.length} clips to continue`}
           </button>
 
-          <p className="text-xs text-center mt-3" style={{ color: '#525252' }}>
+          <p className="text-xs text-center mt-3" style={{ color: 'var(--ink-faint)' }}>
             For best results use clips with the same resolution and codec (e.g., from Shorts Studio)
           </p>
         </div>
@@ -416,28 +503,28 @@ export default function ShortsComposer() {
         <div className="max-w-xl">
           <div
             className="rounded-2xl p-8 flex flex-col items-center text-center"
-            style={{ background: '#171717', border: '1px solid #262626' }}
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
           >
             <div
               className="flex items-center justify-center rounded-2xl mb-5"
-              style={{ width: 64, height: 64, background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)' }}
+              style={{ width: 64, height: 64, background: 'rgba(245,165,36,0.12)', border: '1px solid rgba(245,165,36,0.3)' }}
             >
-              <Film size={26} color="#3b82f6" />
+              <Film size={26} color="#f5a524" />
             </div>
-            <p className="text-lg font-semibold text-white mb-1">Stitching your Short</p>
-            <p className="text-xs mb-6" style={{ color: '#3b82f6' }}>{progressLabel}</p>
+            <p className="display-sm mb-1" style={{ fontSize: 20 }}>Stitching your Short</p>
+            <p className="text-xs mb-6" style={{ color: '#f5a524' }}>{progressLabel}</p>
             <div className="w-full rounded-full overflow-hidden mb-2" style={{ height: 6, background: '#262626' }}>
               <div
                 className="h-full rounded-full transition-all"
                 style={{
                   width: `${progress}%`,
-                  background: 'linear-gradient(90deg,#3b82f6,#60a5fa)',
+                  background: 'linear-gradient(90deg,#f5a524,#ffb63f)',
                   transition: 'width 0.3s ease',
                 }}
               />
             </div>
-            <p className="text-xs mt-1" style={{ color: '#737373' }}>{progress}%</p>
-            <p className="text-xs mt-4" style={{ color: '#525252' }}>
+            <p className="text-xs mt-1" style={{ color: 'var(--ink-muted)' }}>{progress}%</p>
+            <p className="text-xs mt-4" style={{ color: 'var(--ink-faint)' }}>
               Processing happens entirely in your browser
             </p>
           </div>
@@ -448,7 +535,7 @@ export default function ShortsComposer() {
       {step === 'done' && outputUrl && template && (
         <div className="max-w-xl">
           <div
-            className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg text-xs font-medium w-fit"
+            className="flex items-center gap-2 mb-4 px-3.5 py-2 rounded-full text-xs font-medium w-fit"
             style={{ background: 'rgba(52,211,153,0.1)', color: '#34d399', border: '1px solid rgba(52,211,153,0.2)' }}
           >
             <CheckCircle size={13} />
@@ -457,7 +544,7 @@ export default function ShortsComposer() {
 
           <div
             className="rounded-2xl overflow-hidden mb-4"
-            style={{ background: '#171717', border: '1px solid #262626' }}
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
           >
             <video
               src={outputUrl}
@@ -467,15 +554,14 @@ export default function ShortsComposer() {
             />
             <div className="p-4 flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-white">{template.name}</p>
-                <p className="text-xs mt-0.5" style={{ color: '#737373' }}>
+                <p className="display-sm text-sm">{template.name}</p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--ink-muted)' }}>
                   {slots.map(s => s.label).join(' → ')}
                 </p>
               </div>
               <button
                 onClick={download}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-80"
-                style={{ background: 'linear-gradient(135deg,#3b82f6,#60a5fa)' }}
+                className="btn-pill btn-primary btn-sm"
               >
                 <Download size={14} />
                 Download
@@ -527,7 +613,7 @@ function SlotRow({
   return (
     <div
       className="rounded-xl p-3 flex items-center gap-3"
-      style={{ background: '#171717', border: `1px solid ${slot.file ? templateColor + '30' : '#262626'}` }}
+      style={{ background: 'var(--surface)', border: `1px solid ${slot.file ? templateColor + '30' : '#262626'}` }}
     >
       {/* Reorder */}
       <div className="flex flex-col gap-0.5">
@@ -598,13 +684,13 @@ function SlotRow({
             <CheckCircle size={13} color="#34d399" className="shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-white truncate">{slot.file.name}</p>
-              <p className="text-xs" style={{ color: '#525252' }}>{formatFileSize(slot.file.size)}</p>
+              <p className="text-xs" style={{ color: 'var(--ink-faint)' }}>{formatFileSize(slot.file.size)}</p>
             </div>
           </div>
         ) : (
           <div className="flex items-center gap-2 px-3">
             <Upload size={12} color="#525252" />
-            <span className="text-xs" style={{ color: '#525252' }}>Drop clip or click</span>
+            <span className="text-xs" style={{ color: 'var(--ink-faint)' }}>Drop clip or click</span>
           </div>
         )}
       </div>

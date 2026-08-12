@@ -1,11 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
-import { Upload, Scissors, Download, CheckCircle, AlertCircle, Settings2 } from 'lucide-react'
-import { FFmpeg } from '@ffmpeg/ffmpeg'
-import { fetchFile } from '@ffmpeg/util'
+import { Upload, Scissors, Download, CheckCircle, AlertCircle, Settings2, SlidersHorizontal, Wand2 } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
-
-const coreURL = '/ffmpeg-core.js'
-const wasmURL = '/ffmpeg-core.wasm'
+import PhoneFrame from '../components/PhoneFrame'
+import ShortsShowcase from '../components/ShortsShowcase'
+import ClipTimelineEditor, { type TextOverlay } from '../components/ClipTimelineEditor'
 
 interface GeneratedClip {
   id: number
@@ -14,6 +12,38 @@ interface GeneratedClip {
   endTime: number
   duration: number
   filename: string
+  overlays: TextOverlay[]
+  edited: boolean
+  cutReason: CutReason
+}
+
+type CutReason = 'pause' | 'scene' | 'fixed' | 'start'
+
+interface ShortsJobClip {
+  filename: string
+  index: number
+  startTime: number
+  duration: number
+  cutReason: CutReason
+}
+
+interface ShortsJobStatus {
+  status: 'processing' | 'done' | 'error'
+  phase?: 'analyzing' | 'splitting'
+  progress: number
+  error?: string
+  clips?: ShortsJobClip[]
+  sourceDuration?: number
+  width?: number
+  height?: number
+  naturalCuts?: number
+}
+
+const CUT_LABELS: Record<CutReason, string | null> = {
+  pause: 'Cut on a pause',
+  scene: 'Cut on a scene change',
+  fixed: 'Cut at target length',
+  start: null,
 }
 
 type Step = 'upload' | 'processing' | 'results'
@@ -34,6 +64,10 @@ function formatDuration(s: number): string {
   return sec > 0 ? `${m}m ${sec}s` : `${m}m`
 }
 
+function clipFilename(index: number, startTime: number): string {
+  return `short_${index + 1}_${formatTime(startTime).replace(':', 'm')}s.mp4`
+}
+
 function formatFileSize(b: number): string {
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`
   if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`
@@ -47,20 +81,22 @@ export default function ShortsStudio() {
   const [videoURL, setVideoURL] = useState<string | null>(null)
   const [videoDuration, setVideoDuration] = useState(0)
   const [clipLength, setClipLength] = useState<ClipLength>(60)
+  const [smartCuts, setSmartCuts] = useState(true)
   const [clips, setClips] = useState<GeneratedClip[]>([])
   const [progress, setProgress] = useState(0)
   const [progressLabel, setProgressLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 })
+  const [editingClipId, setEditingClipId] = useState<number | null>(null)
+  const [naturalCuts, setNaturalCuts] = useState(0)
 
   const fileRef = useRef<HTMLInputElement>(null)
   const previewVideoRef = useRef<HTMLVideoElement>(null)
-  const ffmpegRef = useRef<FFmpeg | null>(null)
-  const clipURLsRef = useRef<string[]>([])
 
   useEffect(() => {
     return () => {
       if (videoURL) URL.revokeObjectURL(videoURL)
-      clipURLsRef.current.forEach(u => URL.revokeObjectURL(u))
     }
   }, [videoURL])
 
@@ -81,83 +117,96 @@ export default function ShortsStudio() {
 
   const estimatedClips = videoDuration > 0 ? Math.floor(videoDuration / clipLength) : 0
 
+  function uploadVideo(file: File, length: number, smart: boolean, onUploadProgress: (pct: number) => void): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', '/api/shorts/split')
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onUploadProgress(Math.round((e.loaded / e.total) * 100))
+      }
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText) as { jobId?: string; error?: string }
+            if (data.jobId) resolve(data.jobId)
+            else reject(new Error(data.error ?? 'Upload failed'))
+          } catch {
+            reject(new Error('Upload failed'))
+          }
+        } else {
+          reject(new Error(`Upload failed (${xhr.status})`))
+        }
+      }
+      xhr.onerror = () => reject(new Error('Upload failed — check your connection'))
+
+      const formData = new FormData()
+      formData.append('video', file)
+      formData.append('clipLength', String(length))
+      formData.append('smartCuts', String(smart))
+      xhr.send(formData)
+    })
+  }
+
   async function generateClips() {
     if (!videoFile) return
     setStep('processing')
     setProgress(0)
     setError(null)
-    clipURLsRef.current.forEach(u => URL.revokeObjectURL(u))
-    clipURLsRef.current = []
 
     try {
-      if (!ffmpegRef.current) {
-        setProgressLabel('Loading video processor...')
-        const ffmpeg = new FFmpeg()
-        ffmpeg.on('progress', ({ progress: p }) => {
-          setProgress(10 + Math.round(p * 80))
-        })
-        await ffmpeg.load({ coreURL, wasmURL })
-        ffmpegRef.current = ffmpeg
-      }
+      setProgressLabel('Uploading video...')
+      const newJobId = await uploadVideo(videoFile, clipLength, smartCuts, (pct) => setProgress(Math.round(pct * 0.5)))
+      setJobId(newJobId)
 
-      const ffmpeg = ffmpegRef.current
+      setProgress(50)
+      setProgressLabel(smartCuts ? 'Listening for natural break points...' : `Splitting into ${clipLength}s clips...`)
 
-      setProgressLabel('Reading video file...')
-      setProgress(5)
-
-      const inputData = await fetchFile(videoFile)
-      await ffmpeg.writeFile('input.mp4', inputData)
-
-      setProgressLabel(`Splitting into ${clipLength}s clips...`)
-      setProgress(10)
-
-      await ffmpeg.exec([
-        '-i', 'input.mp4',
-        '-c', 'copy',
-        '-map', '0',
-        '-segment_time', String(clipLength),
-        '-f', 'segment',
-        '-reset_timestamps', '1',
-        'output_%03d.mp4',
-      ])
-
-      setProgressLabel('Reading generated clips...')
-      setProgress(92)
-
-      const generatedClips: GeneratedClip[] = []
-      let i = 0
-      while (true) {
-        const name = `output_${String(i).padStart(3, '0')}.mp4`
-        try {
-          const data = await ffmpeg.readFile(name) as Uint8Array
-          const blob = new Blob([data], { type: 'video/mp4' })
-          const url = URL.createObjectURL(blob)
-          clipURLsRef.current.push(url)
-          const startTime = i * clipLength
-          const endTime = Math.min(startTime + clipLength, videoDuration)
-          generatedClips.push({
-            id: i,
-            url,
-            startTime,
-            endTime,
-            duration: endTime - startTime,
-            filename: `short_${i + 1}_${formatTime(startTime).replace(':', 'm')}s.mp4`,
-          })
-          await ffmpeg.deleteFile(name)
-          i++
-        } catch {
-          break
+      let status: ShortsJobStatus
+      do {
+        await new Promise(r => setTimeout(r, 1000))
+        const res = await fetch(`/api/shorts/split/${newJobId}/status`)
+        if (!res.ok) throw new Error('Lost connection to the processing job')
+        status = await res.json() as ShortsJobStatus
+        if (status.status === 'processing') {
+          setProgress(50 + Math.round(status.progress * 0.5))
+          setProgressLabel(status.phase === 'analyzing'
+            ? 'Listening for natural break points...'
+            : `Splitting into ~${clipLength}s clips...`)
         }
+      } while (status.status === 'processing')
+
+      if (status.status === 'error') {
+        throw new Error(status.error ?? 'Processing failed. Please try a different video.')
       }
 
-      await ffmpeg.deleteFile('input.mp4')
+      // The editor needs the source dimensions to rasterise text at export scale
+      setFrameSize({
+        width: status.width ?? previewVideoRef.current?.videoWidth ?? 0,
+        height: status.height ?? previewVideoRef.current?.videoHeight ?? 0,
+      })
+      if (status.sourceDuration) setVideoDuration(status.sourceDuration)
+
+      const generatedClips: GeneratedClip[] = (status.clips ?? []).map(c => ({
+        id: c.index,
+        url: `/api/shorts/split/${newJobId}/clips/${c.filename}`,
+        startTime: c.startTime,
+        endTime: c.startTime + c.duration,
+        duration: c.duration,
+        filename: clipFilename(c.index, c.startTime),
+        overlays: [],
+        edited: false,
+        cutReason: c.cutReason ?? 'fixed',
+      }))
+
+      setNaturalCuts(status.naturalCuts ?? 0)
 
       setClips(generatedClips)
       setProgress(100)
       setStep('results')
     } catch (err) {
       console.error(err)
-      setError(err instanceof Error ? err.message : 'Processing failed. Please try a different video.')
+      const message = err instanceof Error ? err.message : typeof err === 'string' ? err : null
+      setError(message ? `Processing failed: ${message}` : 'Processing failed. Please try a different video.')
       setStep('upload')
     }
   }
@@ -174,8 +223,6 @@ export default function ShortsStudio() {
   }
 
   function reset() {
-    clipURLsRef.current.forEach(u => URL.revokeObjectURL(u))
-    clipURLsRef.current = []
     if (videoURL) URL.revokeObjectURL(videoURL)
     setStep('upload')
     setVideoFile(null)
@@ -184,7 +231,31 @@ export default function ShortsStudio() {
     setClips([])
     setError(null)
     setProgress(0)
+    setJobId(null)
+    setFrameSize({ width: 0, height: 0 })
+    setEditingClipId(null)
+    setNaturalCuts(0)
     if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const editingClip = clips.find(c => c.id === editingClipId) ?? null
+
+  function applyEdit(clipId: number, url: string, startTime: number, endTime: number, overlays: TextOverlay[]) {
+    setClips(prev => prev.map(c => c.id === clipId
+      ? {
+          ...c,
+          // Cache-bust so the <video> picks up the freshly rendered file
+          url: `${url}?v=${Date.now()}`,
+          startTime,
+          endTime,
+          duration: endTime - startTime,
+          filename: clipFilename(c.id, startTime),
+          overlays,
+          edited: true,
+        }
+      : c
+    ))
+    setEditingClipId(null)
   }
 
   return (
@@ -203,8 +274,8 @@ export default function ShortsStudio() {
             onClick={() => !videoFile && fileRef.current?.click()}
             className="relative rounded-2xl flex flex-col items-center justify-center transition-all"
             style={{
-              border: `2px dashed ${dragging ? '#3b82f6' : videoFile ? 'rgba(59,130,246,0.3)' : '#333333'}`,
-              background: dragging ? 'rgba(59,130,246,0.06)' : videoFile ? 'rgba(59,130,246,0.03)' : '#171717',
+              border: `2px dashed ${dragging ? '#f5a524' : videoFile ? 'rgba(245,165,36,0.3)' : 'var(--line)'}`,
+              background: dragging ? 'rgba(245,165,36,0.06)' : videoFile ? 'rgba(245,165,36,0.03)' : 'var(--surface)',
               minHeight: videoFile ? 'auto' : 280,
               padding: videoFile ? 24 : 48,
               cursor: videoFile ? 'default' : 'pointer',
@@ -222,15 +293,14 @@ export default function ShortsStudio() {
               <>
                 <div
                   className="flex items-center justify-center rounded-2xl mb-5"
-                  style={{ width: 64, height: 64, background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)' }}
+                  style={{ width: 64, height: 64, background: 'rgba(245,165,36,0.12)', border: '1px solid rgba(245,165,36,0.3)' }}
                 >
-                  <Upload size={26} color="#3b82f6" />
+                  <Upload size={26} color="#f5a524" />
                 </div>
-                <p className="text-lg font-semibold text-white mb-2">Drop your video here</p>
-                <p className="text-sm mb-4" style={{ color: '#737373' }}>MP4, MOV, AVI, WebM — any format</p>
+                <p className="display-sm mb-2" style={{ fontSize: 20 }}>Drop your video here</p>
+                <p className="text-sm mb-4" style={{ color: 'var(--ink-muted)' }}>MP4, MOV, AVI, WebM — any format</p>
                 <button
-                  className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-80"
-                  style={{ background: 'linear-gradient(135deg,#3b82f6,#60a5fa)' }}
+                  className="btn-pill btn-primary"
                 >
                   Browse files
                 </button>
@@ -249,15 +319,15 @@ export default function ShortsStudio() {
                 />
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-semibold text-white">{videoFile.name}</p>
-                    <p className="text-xs mt-0.5" style={{ color: '#737373' }}>
+                    <p className="display-sm text-sm">{videoFile.name}</p>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--ink-muted)' }}>
                       {formatFileSize(videoFile.size)}
                       {videoDuration > 0 && ` · ${formatDuration(videoDuration)}`}
                     </p>
                   </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); reset() }}
-                    className="text-xs px-3 py-1.5 rounded-lg transition-opacity hover:opacity-70"
+                    className="text-xs px-3.5 py-1.5 rounded-full transition-opacity hover:opacity-70"
                     style={{ background: '#262626', color: '#8a8a8a', border: '1px solid #333333' }}
                   >
                     Change
@@ -270,13 +340,13 @@ export default function ShortsStudio() {
           {videoFile && videoDuration > 0 && (
             <div
               className="mt-4 rounded-2xl p-5"
-              style={{ background: '#171717', border: '1px solid #262626' }}
+              style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
             >
               <div className="flex items-center gap-2 mb-4">
-                <Settings2 size={15} color="#3b82f6" />
-                <span className="text-sm font-semibold text-white">Clip settings</span>
+                <Settings2 size={15} color="#f5a524" />
+                <span className="display-sm text-sm">Clip settings</span>
               </div>
-              <p className="text-xs mb-3" style={{ color: '#737373' }}>Clip length</p>
+              <p className="text-xs mb-3" style={{ color: 'var(--ink-muted)' }}>Clip length</p>
               <div className="flex gap-2 mb-4">
                 {CLIP_LENGTHS.map(len => (
                   <button
@@ -284,26 +354,66 @@ export default function ShortsStudio() {
                     onClick={() => setClipLength(len)}
                     className="flex-1 py-2 rounded-xl text-sm font-medium transition-all"
                     style={{
-                      background: clipLength === len ? 'rgba(59,130,246,0.15)' : '#262626',
-                      border: `1px solid ${clipLength === len ? 'rgba(59,130,246,0.4)' : '#333333'}`,
-                      color: clipLength === len ? '#93c5fd' : '#8a8a8a',
+                      background: clipLength === len ? 'rgba(245,165,36,0.15)' : '#262626',
+                      border: `1px solid ${clipLength === len ? 'rgba(245,165,36,0.4)' : '#333333'}`,
+                      color: clipLength === len ? '#f7bb59' : '#8a8a8a',
                     }}
                   >
                     {len}s
                   </button>
                 ))}
               </div>
-              <div className="flex items-center justify-between text-xs mb-5" style={{ color: '#737373' }}>
+              <button
+                onClick={() => setSmartCuts(v => !v)}
+                className="w-full flex items-start gap-3 p-3 rounded-xl mb-4 text-left transition-all"
+                style={{
+                  background: smartCuts ? 'rgba(245,165,36,0.06)' : '#262626',
+                  border: `1px solid ${smartCuts ? 'rgba(245,165,36,0.3)' : '#333333'}`,
+                }}
+              >
+                <div
+                  className="shrink-0 rounded-full relative transition-colors"
+                  style={{ width: 32, height: 18, background: smartCuts ? 'var(--accent)' : '#3a3a3a', marginTop: 1 }}
+                >
+                  <div
+                    className="absolute rounded-full transition-all"
+                    style={{
+                      width: 14, height: 14, top: 2, left: smartCuts ? 16 : 2,
+                      background: smartCuts ? '#0a0a0b' : '#8a8a8a',
+                    }}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <Wand2 size={12} color={smartCuts ? '#f5a524' : '#8a8a8a'} />
+                    <span className="text-sm font-medium" style={{ color: smartCuts ? '#f7bb59' : '#8a8a8a' }}>
+                      Smart cuts
+                    </span>
+                  </div>
+                  <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--ink-muted)' }}>
+                    {smartCuts
+                      ? 'Finds speech pauses and scene changes near your target length so clips start and end cleanly. Slower — the video is re-encoded at the chosen points.'
+                      : 'Splits at an exact interval, on the nearest keyframe. Fast, but cuts can land mid-sentence.'}
+                  </p>
+                </div>
+              </button>
+
+              <div className="flex items-center justify-between text-xs mb-5" style={{ color: 'var(--ink-muted)' }}>
                 <span>Video duration: <span className="text-white">{formatDuration(videoDuration)}</span></span>
-                <span>Estimated clips: <span className="text-white">{estimatedClips}</span></span>
+                <span>
+                  {smartCuts ? 'Around ' : 'Estimated clips: '}
+                  <span className="text-white">{estimatedClips}</span>
+                  {smartCuts ? ' clips' : ''}
+                </span>
               </div>
               <button
                 onClick={generateClips}
                 disabled={estimatedClips === 0}
-                className="w-full py-3 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-80 disabled:opacity-40"
-                style={{ background: 'linear-gradient(135deg,#3b82f6,#60a5fa)' }}
+                className="btn-pill btn-primary w-full"
               >
-                Generate {estimatedClips} clip{estimatedClips !== 1 ? 's' : ''}
+                {smartCuts
+                  ? `Generate ~${estimatedClips} clip${estimatedClips !== 1 ? 's' : ''}`
+                  : `Generate ${estimatedClips} clip${estimatedClips !== 1 ? 's' : ''}`}
               </button>
             </div>
           )}
@@ -320,34 +430,44 @@ export default function ShortsStudio() {
         </div>
       )}
 
+      {step === 'upload' && !videoFile && (
+        <div className="mt-12">
+          <p className="eyebrow text-center mb-1">What you'll get back</p>
+          <p className="text-center text-sm mb-2" style={{ color: 'var(--ink-muted)' }}>
+            Vertical 9:16 clips, ready to post to TikTok, Reels and Shorts
+          </p>
+          <ShortsShowcase centerWidth={124} />
+        </div>
+      )}
+
       {step === 'processing' && (
         <div className="max-w-xl">
           <div
             className="rounded-2xl p-8 flex flex-col items-center text-center"
-            style={{ background: '#171717', border: '1px solid #262626' }}
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
           >
             <div
               className="flex items-center justify-center rounded-2xl mb-5"
-              style={{ width: 64, height: 64, background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.3)' }}
+              style={{ width: 64, height: 64, background: 'rgba(245,165,36,0.12)', border: '1px solid rgba(245,165,36,0.3)' }}
             >
-              <Scissors size={26} color="#3b82f6" />
+              <Scissors size={26} color="#f5a524" />
             </div>
-            <p className="text-lg font-semibold text-white mb-1">Processing your video</p>
-            <p className="text-sm mb-1" style={{ color: '#737373' }}>{videoFile?.name}</p>
-            <p className="text-xs mb-6" style={{ color: '#3b82f6' }}>{progressLabel}</p>
+            <p className="display-sm mb-1" style={{ fontSize: 20 }}>Processing your video</p>
+            <p className="text-sm mb-1" style={{ color: 'var(--ink-muted)' }}>{videoFile?.name}</p>
+            <p className="text-xs mb-6" style={{ color: '#f5a524' }}>{progressLabel}</p>
             <div className="w-full rounded-full overflow-hidden mb-2" style={{ height: 6, background: '#262626' }}>
               <div
                 className="h-full rounded-full"
                 style={{
                   width: `${progress}%`,
-                  background: 'linear-gradient(90deg,#3b82f6,#60a5fa)',
+                  background: 'linear-gradient(90deg,#f5a524,#ffb63f)',
                   transition: 'width 0.3s ease',
                 }}
               />
             </div>
-            <p className="text-xs mt-1" style={{ color: '#737373' }}>{progress}%</p>
-            <p className="text-xs mt-4" style={{ color: '#525252' }}>
-              Processing happens entirely in your browser — large files may take a minute
+            <p className="text-xs mt-1" style={{ color: 'var(--ink-muted)' }}>{progress}%</p>
+            <p className="text-xs mt-4" style={{ color: 'var(--ink-faint)' }}>
+              Uploading and processing on the server — large files may take a few minutes
             </p>
           </div>
         </div>
@@ -358,26 +478,34 @@ export default function ShortsStudio() {
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <div
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium"
                 style={{ background: 'rgba(52,211,153,0.1)', color: '#34d399', border: '1px solid rgba(52,211,153,0.2)' }}
               >
                 <CheckCircle size={12} />
                 {clips.length} clip{clips.length !== 1 ? 's' : ''} generated
               </div>
-              <span className="text-xs" style={{ color: '#737373' }}>{videoFile?.name}</span>
+              {naturalCuts > 0 && (
+                <div
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium"
+                  style={{ background: 'rgba(245,165,36,0.1)', color: '#f7bb59', border: '1px solid rgba(245,165,36,0.2)' }}
+                >
+                  <Wand2 size={12} />
+                  {naturalCuts} cut{naturalCuts !== 1 ? 's' : ''} on a natural break
+                </div>
+              )}
+              <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>{videoFile?.name}</span>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={reset}
-                className="px-4 py-2 rounded-xl text-sm font-medium transition-opacity hover:opacity-70"
+                className="btn-pill btn-ghost btn-sm"
                 style={{ background: '#262626', color: '#8a8a8a', border: '1px solid #333333' }}
               >
                 New video
               </button>
               <button
                 onClick={downloadAll}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-80"
-                style={{ background: 'linear-gradient(135deg,#3b82f6,#60a5fa)' }}
+                className="btn-pill btn-primary btn-sm"
               >
                 <Download size={14} />
                 Download all
@@ -385,34 +513,59 @@ export default function ShortsStudio() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-wrap gap-8 justify-center py-2">
             {clips.map((clip) => (
-              <div
-                key={clip.id}
-                className="rounded-2xl overflow-hidden"
-                style={{ background: '#171717', border: '1px solid #262626' }}
-              >
-                <video
-                  src={clip.url}
-                  controls
-                  className="w-full"
-                  style={{ maxHeight: 220, background: '#000', display: 'block' }}
-                />
-                <div className="p-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-white">Clip {clip.id + 1}</p>
-                    <p className="text-xs mt-0.5" style={{ color: '#737373' }}>
-                      {formatTime(clip.startTime)} – {formatTime(clip.endTime)} · {formatDuration(clip.duration)}
-                    </p>
+              <div key={clip.id} className="flex flex-col items-center gap-3">
+                <PhoneFrame width={188}>
+                  <video
+                    src={clip.url}
+                    controls
+                    playsInline
+                    className="w-full h-full"
+                    style={{ objectFit: 'cover', background: '#000', display: 'block' }}
+                  />
+                </PhoneFrame>
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <p className="display-sm text-sm">Clip {clip.id + 1}</p>
+                    {clip.edited && (
+                      <span
+                        className="px-1.5 py-0.5 rounded-full"
+                        style={{ fontSize: 9, background: 'rgba(52,211,153,0.1)', color: '#34d399', border: '1px solid rgba(52,211,153,0.2)' }}
+                      >
+                        EDITED
+                      </span>
+                    )}
                   </div>
-                  <button
-                    onClick={() => downloadClip(clip)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-opacity hover:opacity-80"
-                    style={{ background: 'rgba(59,130,246,0.1)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.2)' }}
-                  >
-                    <Download size={12} />
-                    Download
-                  </button>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--ink-muted)' }}>
+                    {formatTime(clip.startTime)} – {formatTime(clip.endTime)} · {formatDuration(clip.duration)}
+                  </p>
+                  <p className="text-xs mt-0.5 mb-2 flex items-center justify-center gap-1" style={{ color: 'var(--ink-faint)', minHeight: 16 }}>
+                    {!clip.edited && CUT_LABELS[clip.cutReason] && (
+                      <>
+                        {(clip.cutReason === 'pause' || clip.cutReason === 'scene') && <Wand2 size={10} color="#f5a524" />}
+                        {CUT_LABELS[clip.cutReason]}
+                      </>
+                    )}
+                  </p>
+                  <div className="flex items-center justify-center gap-1.5">
+                    <button
+                      onClick={() => setEditingClipId(clip.id)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-opacity hover:opacity-80"
+                      style={{ background: 'var(--surface-3)', color: 'var(--ink-body)', border: '1px solid var(--border)' }}
+                    >
+                      <SlidersHorizontal size={12} />
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => downloadClip(clip)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-opacity hover:opacity-80"
+                      style={{ background: 'rgba(245,165,36,0.1)', color: '#f7bb59', border: '1px solid rgba(245,165,36,0.2)' }}
+                    >
+                      <Download size={12} />
+                      Save
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -420,9 +573,9 @@ export default function ShortsStudio() {
 
           <div
             className="mt-6 rounded-2xl p-5"
-            style={{ background: '#171717', border: '1px solid #262626' }}
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
           >
-            <p className="text-sm font-semibold text-white mb-3">Platform tips for your clips</p>
+            <p className="display-sm text-sm mb-3">Platform tips for your clips</p>
             <div className="grid grid-cols-3 gap-4">
               {[
                 { platform: 'TikTok', color: '#69C9D0', tip: 'Keep clips under 45s for max reach. Add captions — 85% of TikTok is watched without sound.' },
@@ -434,12 +587,32 @@ export default function ShortsStudio() {
                     <span className="w-2 h-2 rounded-full" style={{ background: color }} />
                     <span className="text-xs font-semibold" style={{ color }}>{platform}</span>
                   </div>
-                  <p className="text-xs leading-relaxed" style={{ color: '#737373' }}>{tip}</p>
+                  <p className="text-xs leading-relaxed" style={{ color: 'var(--ink-muted)' }}>{tip}</p>
                 </div>
               ))}
             </div>
           </div>
         </div>
+      )}
+
+      {editingClip && jobId && videoURL && (
+        <ClipTimelineEditor
+          jobId={jobId}
+          clipIndex={editingClip.id}
+          clipNumber={editingClip.id + 1}
+          sourceURL={videoURL}
+          sourceDuration={videoDuration}
+          frameWidth={frameSize.width}
+          frameHeight={frameSize.height}
+          edit={{
+            startTime: editingClip.startTime,
+            endTime: editingClip.endTime,
+            overlays: editingClip.overlays,
+          }}
+          siblings={clips.filter(c => c.id !== editingClip.id).map(c => ({ start: c.startTime, end: c.endTime }))}
+          onClose={() => setEditingClipId(null)}
+          onSaved={({ url, edit }) => applyEdit(editingClip.id, url, edit.startTime, edit.endTime, edit.overlays)}
+        />
       )}
     </div>
   )
