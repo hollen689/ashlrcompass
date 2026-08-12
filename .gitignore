@@ -15,6 +15,7 @@ dist-ssr
 # Secrets & local data
 .env
 .tokens.json
+.tmp/
 
 # Editor directories and files
 .vscode/*

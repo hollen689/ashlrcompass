@@ -1,10 +1,10 @@
+import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
-import dotenv from 'dotenv'
 import { youtubeRouter } from './youtube.js'
 import { instagramRouter } from './instagram.js'
-
-dotenv.config()
+import { aiRouter } from './ai.js'
+import { shortsRouter } from './shorts.js'
 
 const app = express()
 const PORT = Number(process.env.PORT ?? 3001)
@@ -16,6 +16,8 @@ app.use(cors({
 app.use(express.json())
 app.use('/', youtubeRouter)
 app.use('/', instagramRouter)
+app.use('/', aiRouter)
+app.use('/', shortsRouter)
 
 app.get('/health', (_, res) => res.json({ ok: true }))
 
@@ -27,6 +29,10 @@ app.listen(PORT, () => {
   }
   if (!process.env.INSTAGRAM_APP_ID) {
     console.log('\n⚠  INSTAGRAM_APP_ID not set — Instagram OAuth will not work.')
+    console.log('   Copy .env.example to .env and fill in your credentials.\n')
+  }
+  if (!process.env.XAI_API_KEY) {
+    console.log('\n⚠  XAI_API_KEY not set — AI content suggestions will not work.')
     console.log('   Copy .env.example to .env and fill in your credentials.\n')
   }
 })
