@@ -1,32 +1,325 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------
+   Ashlr Compass — instrument theme.
+   Precision-instrument language: hairline rules, tick marks, radial
+   compass geometry, signal amber on near-black.
+   --------------------------------------------------------------- */
+:root {
+  /* Surfaces */
+  --bg: #0a0a0b;
+  --bg-shell: #08080a;
+  --surface: #131315;
+  --surface-2: #191a1c;
+  --surface-3: #212225;
+  --border: #26272b;
+  --border-soft: #1c1d20;
+
+  /* Instrument rules — hairlines and ticks, never dashes */
+  --line: rgba(250, 250, 247, 0.12);
+  --line-strong: rgba(250, 250, 247, 0.28);
+  --line-faint: rgba(250, 250, 247, 0.06);
+
+  /* Ink */
+  --ink: #fafaf7;
+  --ink-body: #d8d8d2;
+  --ink-muted: #8b8b86;
+  --ink-faint: #5c5c58;
+
+  /* Signal amber */
+  --accent: #f5a524;
+  --accent-hover: #ffb63f;
+  --accent-soft: #f7bb59;
+  --accent-tint: rgba(245, 165, 36, 0.12);
+  --accent-tint-strong: rgba(245, 165, 36, 0.24);
+  /* Text that sits on top of a filled amber surface */
+  --on-accent: #0a0a0b;
+
+  /* Shape — tighter than a marketing site, closer to a readout */
+  --r-card: 14px;
+  --r-md: 10px;
+  --r-pill: 50px;
+
+  /* Type */
+  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  font-family: 'Inter', system-ui, sans-serif;
-  background-color: #0c0c0c;
-  color: #e5e5e5;
+  font-family: var(--font-body);
+  background-color: var(--bg);
+  color: var(--ink-body);
   -webkit-font-smoothing: antialiased;
 }
 
 #root {
-  display: flex;
   min-height: 100vh;
+}
+
+/* ---------------------------------------------------------------
+   Typography — Space Grotesk, squared-off and technical
+   --------------------------------------------------------------- */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1.0;
+  letter-spacing: -0.035em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.display-sm {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+
+/* Instrument label: small, wide-tracked, all caps */
+.eyebrow {
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-faint);
+}
+
+/* Readout figures — tabular so they don't jitter as they update */
+.numeric {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* Bearing readout, e.g. "N 042°" */
+.bearing {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------
+   Surfaces
+   --------------------------------------------------------------- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+}
+
+/* Outlined panel with amber registration marks at opposite corners */
+.card-outline {
+  position: relative;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+.card-outline::before,
+.card-outline::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-style: solid;
+  border-color: var(--accent);
+  opacity: 0.85;
+}
+.card-outline::before {
+  top: -1px;
+  left: -1px;
+  border-width: 1px 0 0 1px;
+  border-top-left-radius: var(--r-card);
+}
+.card-outline::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 1px 1px 0;
+  border-bottom-right-radius: var(--r-card);
+}
+
+/* Row of readout cells divided by hairlines */
+.cell-grid {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  overflow: hidden;
+}
+.cell-grid > * + * {
+  border-left: 1px solid var(--line);
+}
+
+/* ---------------------------------------------------------------
+   Compass geometry
+   --------------------------------------------------------------- */
+
+/* Hairline ruler with regular tick marks — the workhorse divider */
+.tick-rule {
+  height: 9px;
+  background:
+    repeating-linear-gradient(to right, var(--line-strong) 0 1px, transparent 1px 14px)
+      bottom left / 100% 5px no-repeat,
+    linear-gradient(to right, var(--line) 0 100%) bottom left / 100% 1px no-repeat;
+}
+
+/* Plain hairline ring */
+.compass-arc {
+  position: absolute;
+  border: 1px solid var(--line-faint);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* Ring of radial ticks, like a bezel */
+.compass-ticks {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(250, 250, 247, 0.42) 0deg 0.55deg,
+    transparent 0.55deg 6deg
+  );
+  -webkit-mask: radial-gradient(
+    circle closest-side,
+    transparent calc(100% - 11px),
+    #000 calc(100% - 11px),
+    #000 100%
+  );
+  mask: radial-gradient(
+    circle closest-side,
+    transparent calc(100% - 11px),
+    #000 calc(100% - 11px),
+    #000 100%
+  );
+}
+
+/* Four amber cardinal marks, sat on top of the tick ring */
+.compass-cardinals {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background: repeating-conic-gradient(
+    from -0.9deg,
+    var(--accent) 0deg 1.8deg,
+    transparent 1.8deg 90deg
+  );
+  -webkit-mask: radial-gradient(
+    circle closest-side,
+    transparent calc(100% - 18px),
+    #000 calc(100% - 18px),
+    #000 100%
+  );
+  mask: radial-gradient(
+    circle closest-side,
+    transparent calc(100% - 18px),
+    #000 calc(100% - 18px),
+    #000 100%
+  );
+}
+
+/* Thin crosshair, for anchoring a composition */
+.crosshair {
+  position: absolute;
+  pointer-events: none;
+  background:
+    linear-gradient(to right, var(--line) 0 100%) center / 100% 1px no-repeat,
+    linear-gradient(to bottom, var(--line) 0 100%) center / 1px 100% no-repeat;
+}
+
+/* ---------------------------------------------------------------
+   Controls
+   --------------------------------------------------------------- */
+.btn-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  border-radius: var(--r-pill);
+  padding: 11px 26px;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+}
+.btn-pill:active {
+  transform: translateY(1px);
+}
+.btn-pill:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Amber is light, so filled buttons take dark ink */
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink-body);
+  border: 1px solid var(--line);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.btn-sm {
+  font-size: 12.5px;
+  padding: 7px 16px;
+}
+
+/* Numbered marker — a waypoint on the route */
+.step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 ::-webkit-scrollbar {
   width: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: #171717;
+  background: var(--surface);
 }
 ::-webkit-scrollbar-thumb {
-  background: #333333;
+  background: #35363a;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #444444;
+  background: #45464a;
 }
